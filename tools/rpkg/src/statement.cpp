@@ -637,15 +637,6 @@ SEXP RApi::DuckDBRecordBatchR(SEXP query_resultsexp, SEXP approx_batch_sizeexp) 
 	return cpp11::safe[Rf_eval](record_batch_reader, arrow_namespace);
 }
 
-static SEXP DuckDBFinalizeQueryR(SEXP query_resultsexp) {
-	RQueryResult *query_result_holder = (RQueryResult *)R_ExternalPtrAddr(query_resultsexp);
-	if (query_resultsexp) {
-		R_ClearExternalPtr(query_resultsexp);
-		delete query_result_holder;
-	}
-	return R_NilValue;
-}
-
 SEXP RApi::Execute(SEXP stmtsexp, SEXP arrowsexp) {
 	if (TYPEOF(stmtsexp) != EXTPTRSXP) {
 		cpp11::stop("duckdb_execute_R: Need external pointer for first parameter");
@@ -665,11 +656,9 @@ SEXP RApi::Execute(SEXP stmtsexp, SEXP arrowsexp) {
 	}
 
 	if (arrow_fetch) {
-		RProtector r;
 		auto query_result = new RQueryResult();
 		query_result->result = move(generic_result);
-		SEXP query_resultexp = r.Protect(R_MakeExternalPtr(query_result, R_NilValue, R_NilValue));
-		R_RegisterCFinalizer(query_resultexp, (void (*)(SEXP))DuckDBFinalizeQueryR);
+		cpp11::external_pointer<RQueryResult> query_resultexp(R_MakeExternalPtr(query_result, R_NilValue, R_NilValue));
 		return query_resultexp;
 	} else {
 		D_ASSERT(generic_result->type == QueryResultType::MATERIALIZED_RESULT);
