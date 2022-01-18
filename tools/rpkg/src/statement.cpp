@@ -38,12 +38,7 @@ SEXP RApi::Release(SEXP stmtsexp) {
 	return R_NilValue;
 }
 
-static SEXP duckdb_finalize_statement_R(SEXP stmtsexp) {
-	return RApi::Release(stmtsexp);
-}
-
 SEXP RApi::Prepare(SEXP connsexp, SEXP querysexp) {
-	RProtector r;
 	if (TYPEOF(querysexp) != STRSXP || Rf_length(querysexp) != 1) {
 		cpp11::stop("duckdb_prepare_R: Need single string parameter for query");
 	}
@@ -70,9 +65,7 @@ SEXP RApi::Prepare(SEXP connsexp, SEXP querysexp) {
 	stmtholder->stmt = move(stmt);
 
 	cpp11::list retlist(NEW_LIST(6));
-
-	SEXP stmtsexp = r.Protect(R_MakeExternalPtr(stmtholder, R_NilValue, R_NilValue));
-	R_RegisterCFinalizer(stmtsexp, (void (*)(SEXP))duckdb_finalize_statement_R);
+	cpp11::external_pointer<RStatement> stmtsexp(stmtholder);
 
 	SET_NAMES(retlist, RStrings::get().str_ref_type_names_rtypes_n_param_str);
 
@@ -632,15 +625,6 @@ SEXP RApi::DuckDBRecordBatchR(SEXP query_resultsexp, SEXP approx_batch_sizeexp) 
 	return cpp11::safe[Rf_eval](record_batch_reader, arrow_namespace);
 }
 
-static SEXP DuckDBFinalizeQueryR(SEXP query_resultsexp) {
-	RQueryResult *query_result_holder = (RQueryResult *)R_ExternalPtrAddr(query_resultsexp);
-	if (query_resultsexp) {
-		R_ClearExternalPtr(query_resultsexp);
-		delete query_result_holder;
-	}
-	return R_NilValue;
-}
-
 SEXP RApi::Execute(SEXP stmtsexp, SEXP arrowsexp) {
 	if (TYPEOF(stmtsexp) != EXTPTRSXP) {
 		cpp11::stop("duckdb_execute_R: Need external pointer for first parameter");
@@ -660,11 +644,9 @@ SEXP RApi::Execute(SEXP stmtsexp, SEXP arrowsexp) {
 	}
 
 	if (arrow_fetch) {
-		RProtector r;
 		auto query_result = new RQueryResult();
 		query_result->result = move(generic_result);
-		SEXP query_resultexp = r.Protect(R_MakeExternalPtr(query_result, R_NilValue, R_NilValue));
-		R_RegisterCFinalizer(query_resultexp, (void (*)(SEXP))DuckDBFinalizeQueryR);
+		cpp11::external_pointer<RQueryResult> query_resultexp(query_result);
 		return query_resultexp;
 	} else {
 		D_ASSERT(generic_result->type == QueryResultType::MATERIALIZED_RESULT);
